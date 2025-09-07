@@ -1,3 +1,3 @@
-module gort-trade-model
+module github.com/bohunn/gort-trade-model
 
 go 1.24
