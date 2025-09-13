@@ -25,9 +25,10 @@ type Symbol string
 
 const (
 	SymbolBTCUSDT Symbol = "BTCUSDT"
-	SymbolETHUSDT Symbol = "ETHUSD"
-	SymbolBTCUSD  Symbol = "BTCUSD"
-	// Add more as needed
+	SymbolETHUSDT Symbol = "ETHUSDT"
+	SymbolBNBUSDT Symbol = "BNBUSDT"
+	SymbolSOLUSDT Symbol = "SOLUSDT"
+	SymbolXRPUSDT Symbol = "XRPUSDT"
 )
 
 // OrderType represents the type of liquidation order
@@ -45,12 +46,15 @@ type Side string
 const (
 	SideLong  Side = "long"
 	SideShort Side = "short"
+	SideBuy   Side = "BUY"  // Binance format
+	SideSell  Side = "SELL" // Binance format
 )
 
 // Interval represents time intervals for aggregation
 type Interval string
 
 const (
+	Interval1s  Interval = "1s"
 	Interval1m  Interval = "1m"
 	Interval5m  Interval = "5m"
 	Interval15m Interval = "15m"
@@ -58,6 +62,10 @@ const (
 	Interval4h  Interval = "4h"
 	Interval1d  Interval = "1d"
 )
+
+// ===========================================
+// RAW MARKET DATA STRUCTURES
+// ===========================================
 
 // MarketSnapshot represents current market state
 type MarketSnapshot struct {
@@ -67,82 +75,110 @@ type MarketSnapshot struct {
 	MarkPrice       float64  `json:"mark_price"`
 	IndexPrice      float64  `json:"index_price"`
 	FundingRate     float64  `json:"funding_rate"`
-	OpenInterest    float64  `json:"open_interest"` // in USD
-	Volume24h       float64  `json:"volume_24h"`    // in USD
+	OpenInterest    float64  `json:"open_interest"`     // in contracts
+	OpenInterestUSD float64  `json:"open_interest_usd"` // in USD
+	Volume24h       float64  `json:"volume_24h"`        // in USD
+	Turnover24h     float64  `json:"turnover_24h"`      // in USD
 	NextFundingTime int64    `json:"next_funding_time"`
 }
 
-// LiquidationEvent represents a single liquidation
+// LiquidationEvent represents a single liquidation from exchange
 type LiquidationEvent struct {
-	Exchange  Exchange  `json:"exchange"`
-	Symbol    Symbol    `json:"symbol"`
-	Timestamp int64     `json:"timestamp"`
-	Side      Side      `json:"side"`
-	Price     float64   `json:"price"`
-	Quantity  float64   `json:"quantity"`
-	Value     float64   `json:"value"` // USD value
-	OrderType OrderType `json:"order_type"`
-}
-
-// PositionDistribution represents positions at a price level
-type PositionDistribution struct {
-	Exchange       Exchange        `json:"exchange"`
-	Symbol         Symbol          `json:"symbol"`
-	Timestamp      int64           `json:"timestamp"`
-	PriceLevel     float64         `json:"price_level"`
-	LongPositions  PositionSummary `json:"long_positions"`
-	ShortPositions PositionSummary `json:"short_positions"`
-}
-
-// PositionSummary contains aggregated position data
-type PositionSummary struct {
-	Count       int     `json:"count"`
-	Volume      float64 `json:"volume"` // in USD
-	AvgLeverage float64 `json:"avg_leverage"`
+	Exchange       Exchange  `json:"exchange"`
+	Symbol         Symbol    `json:"symbol"`
+	Timestamp      int64     `json:"timestamp"`
+	Side           Side      `json:"side"`     // BUY/SELL or long/short
+	Price          float64   `json:"price"`    // Liquidation price
+	Quantity       float64   `json:"quantity"` // Contract quantity
+	Value          float64   `json:"value"`    // USD value
+	OrderType      OrderType `json:"order_type"`
+	AvgPrice       float64   `json:"avg_price,omitempty"`        // Average fill price
+	FilledQty      float64   `json:"filled_qty,omitempty"`       // Filled quantity
+	OrderStatus    string    `json:"order_status,omitempty"`     // Order status
+	OrderTradeTime int64     `json:"order_trade_time,omitempty"` // Trade execution time
 }
 
 // OrderBookSnapshot represents order book state
 type OrderBookSnapshot struct {
-	Exchange   Exchange    `json:"exchange"`
-	Symbol     Symbol      `json:"symbol"`
-	Timestamp  int64       `json:"timestamp"`
-	Bids       []PriceSize `json:"bids"`
-	Asks       []PriceSize `json:"asks"`
-	SequenceID int64       `json:"sequence_id,omitempty"`
+	Exchange     Exchange     `json:"exchange"`
+	Symbol       Symbol       `json:"symbol"`
+	Timestamp    int64        `json:"timestamp"`
+	Bids         []PriceLevel `json:"bids"`
+	Asks         []PriceLevel `json:"asks"`
+	LastUpdateID int64        `json:"last_update_id,omitempty"`
+	Spread       float64      `json:"spread,omitempty"`
+	MidPrice     float64      `json:"mid_price,omitempty"`
+	Imbalance    float64      `json:"imbalance,omitempty"` // -1 to 1
 }
 
-// PriceSize represents a price and size tuple
-type PriceSize struct {
-	Price float64 `json:"price"`
-	Size  float64 `json:"size"`
+// PriceLevel represents a price and size at that level
+type PriceLevel struct {
+	Price    float64 `json:"price"`
+	Quantity float64 `json:"quantity"`
+	Count    int     `json:"count,omitempty"` // Number of orders at this level
 }
 
-// HeatmapData represents aggregated liquidation heatmap
+// ===========================================
+// CALCULATED HEATMAP STRUCTURES
+// ===========================================
+
+// HeatmapData represents the complete liquidation heatmap
 type HeatmapData struct {
-	Symbol            Symbol             `json:"symbol"`
-	Timestamp         int64              `json:"timestamp"`
-	Interval          Interval           `json:"interval"`
-	CurrentPrice      float64            `json:"current_price"`
-	LiquidationLevels []LiquidationLevel `json:"liquidation_levels"`
-	Metadata          HeatmapMetadata    `json:"metadata"`
+	Symbol       Symbol               `json:"symbol"`
+	Exchange     Exchange             `json:"exchange,omitempty"`
+	Timestamp    int64                `json:"timestamp"`
+	Interval     Interval             `json:"interval"`
+	CurrentPrice float64              `json:"current_price"`
+	Levels       []LiquidationLevel   `json:"levels"`
+	Clusters     []LiquidationCluster `json:"clusters"`
+	Summary      HeatmapSummary       `json:"summary"`
 }
 
 // LiquidationLevel represents liquidations at a specific price
 type LiquidationLevel struct {
-	Price                       float64    `json:"price"`
-	CumulativeLongLiquidations  float64    `json:"cumulative_long_liquidations"`  // USD
-	CumulativeShortLiquidations float64    `json:"cumulative_short_liquidations"` // USD
-	EstimatedImpact             float64    `json:"estimated_impact"`              // percentage
-	Exchanges                   []Exchange `json:"exchanges"`
+	Price             float64 `json:"price"`
+	LongLiquidations  float64 `json:"long_liquidations"`  // USD volume
+	ShortLiquidations float64 `json:"short_liquidations"` // USD volume
+	TotalVolume       float64 `json:"total_volume"`       // Total USD volume
+	Intensity         float64 `json:"intensity"`          // 0-100 score
+	Timestamp         int64   `json:"timestamp"`
 }
 
-// HeatmapMetadata contains metadata about the heatmap
-type HeatmapMetadata struct {
-	ExchangesCovered []Exchange `json:"exchanges_covered"`
-	DataCompleteness float64    `json:"data_completeness"` // 0-100
-	CalculationTime  int64      `json:"calculation_time"`  // ms
-	LastUpdate       int64      `json:"last_update"`
+// LiquidationCluster represents a cluster of significant liquidation levels
+type LiquidationCluster struct {
+	Symbol          Symbol             `json:"symbol"`
+	PriceRangeStart float64            `json:"price_range_start"`
+	PriceRangeEnd   float64            `json:"price_range_end"`
+	Levels          []LiquidationLevel `json:"levels"`
+	TotalVolume     float64            `json:"total_volume"`
+	PeakIntensity   float64            `json:"peak_intensity"`
+	UpdatedAt       int64              `json:"updated_at"`
 }
+
+// HeatmapSummary contains aggregated heatmap statistics
+type HeatmapSummary struct {
+	TotalLongLiquidations  float64        `json:"total_long_liquidations"`
+	TotalShortLiquidations float64        `json:"total_short_liquidations"`
+	MaxLiquidationPrice    float64        `json:"max_liquidation_price"`
+	MaxLiquidationVolume   float64        `json:"max_liquidation_volume"`
+	WeightedAvgLongPrice   float64        `json:"weighted_avg_long_price"`
+	WeightedAvgShortPrice  float64        `json:"weighted_avg_short_price"`
+	SignificantLevels      int            `json:"significant_levels"`
+	CriticalZones          []CriticalZone `json:"critical_zones"`
+}
+
+// CriticalZone represents a high-risk liquidation zone
+type CriticalZone struct {
+	PriceStart float64 `json:"price_start"`
+	PriceEnd   float64 `json:"price_end"`
+	Type       string  `json:"type"` // "long", "short", or "mixed"
+	Intensity  float64 `json:"intensity"`
+	Volume     float64 `json:"volume"`
+}
+
+// ===========================================
+// STREAM MESSAGE STRUCTURES
+// ===========================================
 
 // StreamMessage represents a message for Redis Streams
 type StreamMessage struct {
@@ -194,56 +230,21 @@ func structToMap(v interface{}) (map[string]interface{}, error) {
 	return result, nil
 }
 
-// FromStreamMessage reconstructs a model from StreamMessage
-func FromStreamMessage(msg *StreamMessage, v interface{}) error {
-	// Reconstruct the original map
-	originalMap := make(map[string]interface{})
-	for k, v := range msg.Data {
-		str, ok := v.(string)
-		if !ok {
-			originalMap[k] = v
-			continue
-		}
-
-		// Try to parse JSON for complex types
-		if (str[0] == '{' || str[0] == '[') && json.Valid([]byte(str)) {
-			var parsed interface{}
-			if err := json.Unmarshal([]byte(str), &parsed); err == nil {
-				originalMap[k] = parsed
-				continue
-			}
-		}
-
-		// Try to parse as number
-		var num float64
-		if _, err := fmt.Sscanf(str, "%f", &num); err == nil {
-			originalMap[k] = num
-		} else {
-			originalMap[k] = str
-		}
-	}
-
-	// Marshal and unmarshal to target type
-	data, err := json.Marshal(originalMap)
-	if err != nil {
-		return err
-	}
-
-	return json.Unmarshal(data, v)
-}
+// ===========================================
+// STREAM NAME GENERATORS
+// ===========================================
 
 // GetStreamName generates the stream name for different data types
 func GetStreamName(dataType string, exchange Exchange, symbol Symbol) string {
+	if exchange == "" {
+		return fmt.Sprintf("%s:%s", dataType, symbol)
+	}
 	return fmt.Sprintf("%s:%s:%s", dataType, exchange, symbol)
 }
 
 // Stream name generators
 func GetLiquidationStreamName(exchange Exchange, symbol Symbol) string {
 	return GetStreamName("liquidations", exchange, symbol)
-}
-
-func GetPositionStreamName(exchange Exchange, symbol Symbol) string {
-	return GetStreamName("positions", exchange, symbol)
 }
 
 func GetMarketStreamName(exchange Exchange, symbol Symbol) string {
@@ -258,7 +259,13 @@ func GetHeatmapStreamName(symbol Symbol) string {
 	return fmt.Sprintf("heatmap:%s", symbol)
 }
 
-// Validation methods
+func GetHeatmapCacheKey(symbol Symbol, interval Interval) string {
+	return fmt.Sprintf("heatmap:cache:%s:%s", symbol, interval)
+}
+
+// ===========================================
+// VALIDATION METHODS
+// ===========================================
 
 // Validate checks if MarketSnapshot is valid
 func (m *MarketSnapshot) Validate() error {
@@ -294,59 +301,79 @@ func (l *LiquidationEvent) Validate() error {
 	if l.Quantity <= 0 {
 		return fmt.Errorf("invalid quantity")
 	}
-	if l.Value <= 0 {
-		return fmt.Errorf("invalid value")
-	}
-	if l.Side != SideLong && l.Side != SideShort {
-		return fmt.Errorf("invalid side: %s", l.Side)
-	}
 	return nil
 }
 
-// Validate checks if PositionDistribution is valid
-func (p *PositionDistribution) Validate() error {
-	if p.Exchange == "" {
-		return fmt.Errorf("exchange is required")
-	}
-	if p.Symbol == "" {
+// Validate checks if HeatmapData is valid
+func (h *HeatmapData) Validate() error {
+	if h.Symbol == "" {
 		return fmt.Errorf("symbol is required")
 	}
-	if p.Timestamp <= 0 {
+	if h.Timestamp <= 0 {
 		return fmt.Errorf("invalid timestamp")
 	}
-	if p.PriceLevel <= 0 {
-		return fmt.Errorf("invalid price level")
+	if h.CurrentPrice <= 0 {
+		return fmt.Errorf("invalid current price")
+	}
+	if len(h.Levels) == 0 {
+		return fmt.Errorf("no liquidation levels")
 	}
 	return nil
 }
 
-// Helper functions for calculations
+// ===========================================
+// HELPER FUNCTIONS
+// ===========================================
 
-// CalculateLiquidationPrice calculates the liquidation price for a position
-func CalculateLiquidationPrice(entryPrice, leverage float64, isLong bool, maintenanceMargin float64) float64 {
-	if isLong {
-		// Long liquidation: price drops
-		// Liquidation Price = Entry Price × (1 - 1/leverage + maintenance margin)
-		return entryPrice * (1 - 1/leverage + maintenanceMargin)
+// GetLiquidationType returns the liquidation type based on side
+func (l *LiquidationEvent) GetLiquidationType() string {
+	switch l.Side {
+	case SideSell:
+		return "LONG" // Long positions get liquidated with sell orders
+	case SideBuy:
+		return "SHORT" // Short positions get liquidated with buy orders
+	default:
+		if l.Side == SideLong {
+			return "LONG"
+		}
+		return "SHORT"
 	}
-	// Short liquidation: price rises
-	// Liquidation Price = Entry Price × (1 + 1/leverage - maintenance margin)
-	return entryPrice * (1 + 1/leverage - maintenanceMargin)
 }
 
-// EstimatePriceImpact estimates the price impact of liquidations
-func EstimatePriceImpact(liquidationVolume, marketDepth float64) float64 {
-	if marketDepth == 0 {
-		return 0
+// GetEstimatedLeverage estimates the leverage used based on liquidation price
+func (l *LiquidationEvent) GetEstimatedLeverage(markPrice float64) float64 {
+	maintenanceMargin := 0.004 // 0.4% for Binance
+
+	if l.GetLiquidationType() == "LONG" {
+		if markPrice > 0 && l.Price < markPrice {
+			return 1 / (1 - l.Price/markPrice + maintenanceMargin)
+		}
+	} else { // SHORT
+		if markPrice > 0 && l.Price > markPrice {
+			return 1 / (l.Price/markPrice - 1 + maintenanceMargin)
+		}
 	}
-	// Simplified model: impact = liquidation_volume / market_depth * impact_factor
-	impactFactor := 0.1 // 10% impact per 100% of depth consumed
-	return (liquidationVolume / marketDepth) * impactFactor * 100
+
+	return 0 // Unable to calculate
+}
+
+// CalculateIntensity calculates the intensity score for a liquidation level
+func (ll *LiquidationLevel) CalculateIntensity(maxVolume float64) {
+	if maxVolume > 0 {
+		ll.Intensity = (ll.TotalVolume / maxVolume) * 100
+	}
+}
+
+// IsSignificant determines if a liquidation level is significant
+func (ll *LiquidationLevel) IsSignificant(threshold float64) bool {
+	return ll.Intensity >= threshold
 }
 
 // GetIntervalDuration returns the duration for an interval
 func GetIntervalDuration(interval Interval) time.Duration {
 	switch interval {
+	case Interval1s:
+		return time.Second
 	case Interval1m:
 		return time.Minute
 	case Interval5m:
